@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
-interface Bed {
+interface Item {
   name: string | null;
   price: number | null;
   price_raw: string | null;
@@ -12,15 +12,34 @@ interface Bed {
   url: string | null;
 }
 
-let cache: Bed[] | null = null;
+let itemCache: Item[] | null = null;
+let arCache: Set<string> | null = null;
 
-function load(): Bed[] {
-  if (!cache) {
+function loadItems(): Item[] {
+  if (!itemCache) {
     const file = join(process.cwd(), "public", "hoff_beds.json");
     if (!existsSync(file)) return [];
-    cache = JSON.parse(readFileSync(file, "utf-8")) as Bed[];
+    itemCache = JSON.parse(readFileSync(file, "utf-8")) as Item[];
   }
-  return cache;
+  return itemCache;
+}
+
+function loadArSet(): Set<string> {
+  if (!arCache) {
+    const file = join(process.cwd(), "public", "hoff_ar_articuls.json");
+    if (!existsSync(file)) return new Set();
+    arCache = new Set(JSON.parse(readFileSync(file, "utf-8")) as string[]);
+  }
+  return arCache;
+}
+
+function getArticul(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).searchParams.get("articul");
+  } catch {
+    return null;
+  }
 }
 
 export function GET(req: NextRequest) {
@@ -29,7 +48,17 @@ export function GET(req: NextRequest) {
   const page  = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const limit = Math.min(40, Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10)));
 
-  let items = load();
+  const arSet = loadArSet();
+  const hasArFilter = arSet.size > 0;
+
+  let items = loadItems();
+
+  if (hasArFilter) {
+    items = items.filter(b => {
+      const a = getArticul(b.url);
+      return a !== null && arSet.has(a);
+    });
+  }
 
   if (q) {
     items = items.filter(b => b.name?.toLowerCase().includes(q));

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
-interface Sofa {
+interface Item {
   name: string | null;
   price: number | null;
   price_raw: string | null;
@@ -12,23 +12,52 @@ interface Sofa {
   url: string | null;
 }
 
-let cache: Sofa[] | null = null;
+let itemCache: Item[] | null = null;
+let arCache: Set<string> | null = null;
 
-function load(): Sofa[] {
-  if (!cache) {
+function loadItems(): Item[] {
+  if (!itemCache) {
     const file = join(process.cwd(), "public", "hoff_sofas.json");
-    cache = JSON.parse(readFileSync(file, "utf-8")) as Sofa[];
+    itemCache = JSON.parse(readFileSync(file, "utf-8")) as Item[];
   }
-  return cache;
+  return itemCache;
+}
+
+function loadArSet(): Set<string> {
+  if (!arCache) {
+    const file = join(process.cwd(), "public", "hoff_ar_articuls.json");
+    if (!existsSync(file)) return new Set();
+    arCache = new Set(JSON.parse(readFileSync(file, "utf-8")) as string[]);
+  }
+  return arCache;
+}
+
+function getArticul(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).searchParams.get("articul");
+  } catch {
+    return null;
+  }
 }
 
 export function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const q      = searchParams.get("q")?.trim().toLowerCase() ?? "";
-  const page   = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
-  const limit  = Math.min(40, Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10)));
+  const q     = searchParams.get("q")?.trim().toLowerCase() ?? "";
+  const page  = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const limit = Math.min(40, Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10)));
 
-  let items = load();
+  const arSet = loadArSet();
+  const hasArFilter = arSet.size > 0;
+
+  let items = loadItems();
+
+  if (hasArFilter) {
+    items = items.filter(s => {
+      const a = getArticul(s.url);
+      return a !== null && arSet.has(a);
+    });
+  }
 
   if (q) {
     items = items.filter(s => s.name?.toLowerCase().includes(q));
