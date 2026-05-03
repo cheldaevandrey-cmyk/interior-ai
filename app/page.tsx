@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import type { RoomHandle, FurnitureType } from "./components/Room";
+import type { RoomHandle, FurnitureType, OpeningType, FurnitureMeta } from "./components/Room";
+import HoffCatalog from "./components/HoffCatalog";
 
 const Room = dynamic(() => import("./components/Room"), { ssr: false });
 
@@ -13,6 +14,11 @@ const DIMS: { key: DimKey; label: string; minM: number; maxM: number; stepM: num
   { key: "width",  label: "Ширина",  minM: 3,  maxM: 20, stepM: 0.5  },
   { key: "length", label: "Длина",   minM: 3,  maxM: 20, stepM: 0.5  },
   { key: "height", label: "Высота",  minM: 2,  maxM: 6,  stepM: 0.25 },
+];
+
+const OPENINGS: { type: OpeningType; label: string }[] = [
+  { type: "window", label: "Окно"  },
+  { type: "door",   label: "Дверь" },
 ];
 
 const FURNITURE: { type: FurnitureType; label: string }[] = [
@@ -108,7 +114,8 @@ export default function Home() {
     ceiling: "#f0ebe3",
     floor:   "#e5ddd2",
   });
-  const [selected, setSelected] = useState<{ id: string; color: string } | null>(null);
+  const [selected, setSelected]       = useState<{ id: string; color: string; meta?: FurnitureMeta } | null>(null);
+  const [showCatalog, setShowCatalog] = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roomRef = useRef<RoomHandle>(null as any);
@@ -118,8 +125,8 @@ export default function Home() {
     setDims(p => ({ ...p, [key]: Math.max(minM, Math.min(maxM, +m.toFixed(4))) }));
   };
 
-  const handleSelect = (id: string | null, color: string) =>
-    setSelected(id ? { id, color } : null);
+  const handleSelect = (id: string | null, color: string, meta?: FurnitureMeta) =>
+    setSelected(id ? { id, color, meta } : null);
 
   const handleFurnitureColor = (hex: string) => {
     if (!selected) return;
@@ -189,7 +196,7 @@ export default function Home() {
           <div className="flex flex-col gap-1.5 px-5 pb-2">
             {FURNITURE.map(({ type, label }) => (
               <button key={type}
-                onClick={() => roomRef.current?.addFurniture(type)}
+                onClick={() => type === "sofa" ? setShowCatalog(true) : roomRef.current?.addFurniture(type)}
                 className="w-full text-left text-xs px-3 py-2 rounded transition-all"
                 style={{ background: "#e5dfd8", color: "#5c544d", border: "1px solid #cec8bf" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#ddd7cf"; }}
@@ -200,18 +207,72 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Furniture color — shown only when something is selected */}
+          {/* Openings */}
+          <SectionTitle>Проёмы</SectionTitle>
+          <div className="flex flex-col gap-1.5 px-5 pb-2">
+            {OPENINGS.map(({ type, label }) => (
+              <button key={type}
+                onClick={() => roomRef.current?.addOpening(type)}
+                className="w-full text-left text-xs px-3 py-2 rounded transition-all"
+                style={{ background: "#e5dfd8", color: "#5c544d", border: "1px solid #cec8bf" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#ddd7cf"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "#e5dfd8"; }}
+              >
+                + {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Selected furniture info */}
           {selected && (
-            <div className="px-5 py-4" style={{ borderTop: "1px solid #d5cec5" }}>
-              <p className="text-[10px] font-semibold tracking-[0.18em] uppercase mb-3"
-                 style={{ color: "#a09288" }}>
-                Цвет мебели
-              </p>
-              <div className="flex items-center gap-3">
-                <ColorSwatch value={selected.color} onChange={handleFurnitureColor} />
-                <span className="text-xs font-mono" style={{ color: "#7a7069" }}>
-                  {selected.color.toUpperCase()}
-                </span>
+            <div style={{ borderTop: "1px solid #d5cec5" }}>
+
+              {/* Hoff product card */}
+              {selected.meta?.name && (
+                <div className="px-5 pt-4 pb-3 flex flex-col gap-2">
+                  {selected.meta.photo && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selected.meta.photo}
+                      alt={selected.meta.name}
+                      className="w-full rounded"
+                      style={{ height: 110, objectFit: "cover", background: "#e8e2d9" }}
+                    />
+                  )}
+                  <p className="text-[12px] font-medium leading-snug" style={{ color: "#4e4840" }}>
+                    {selected.meta.name}
+                  </p>
+                  {selected.meta.price && (
+                    <p className="text-[13px] font-semibold" style={{ color: "#4e4840" }}>
+                      {selected.meta.price.toLocaleString("ru-RU")} ₽
+                    </p>
+                  )}
+                  {selected.meta.url && (
+                    <a
+                      href={selected.meta.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] py-1.5 px-3 rounded text-center transition-colors"
+                      style={{ background: "#b8a99a", color: "#fff", display: "block" }}
+                    >
+                      Смотреть на Hoff →
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Color picker */}
+              <div className="px-5 pt-3 pb-4" style={{ borderTop: selected.meta?.name ? "1px solid #e0d9d0" : "none" }}>
+                <p className="text-[10px] font-semibold tracking-[0.18em] uppercase mb-3"
+                   style={{ color: "#a09288" }}>
+                  Цвет мебели
+                </p>
+                <div className="flex items-center gap-3">
+                  <ColorSwatch value={selected.color} onChange={handleFurnitureColor} />
+                  <span className="text-xs font-mono" style={{ color: "#7a7069" }}>
+                    {selected.color.toUpperCase()}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -220,8 +281,9 @@ export default function Home() {
           <div className="px-5 pt-2 pb-5">
             <p className="text-[10px] leading-[1.7]" style={{ color: "#b0a89f" }}>
               ЛКМ — выбрать / перетащить.<br />
-              ПКМ — повернуть.<br />
-              2×ЛКМ — удалить.
+              ПКМ — повернуть мебель.<br />
+              2×ЛКМ — удалить.<br />
+              Окна и двери — тяните вдоль стены.
             </p>
           </div>
 
@@ -246,6 +308,22 @@ export default function Home() {
           onFurnitureSelect={handleSelect}
         />
       </div>
+
+      {/* ── Hoff catalog modal ── */}
+      {showCatalog && (
+        <HoffCatalog
+          onClose={() => setShowCatalog(false)}
+          onSelect={sofa => {
+            setShowCatalog(false);
+            roomRef.current?.addFurniture("sofa", {
+              name: sofa.name ?? undefined,
+              price: sofa.price ?? undefined,
+              photo: sofa.photo ?? undefined,
+              url: sofa.url ?? undefined,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
