@@ -116,6 +116,7 @@ export default function Home() {
   });
   const [selected, setSelected]       = useState<{ id: string; color: string; meta?: FurnitureMeta } | null>(null);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [glbLoadedIds, setGlbLoadedIds] = useState<Set<string>>(new Set());
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roomRef = useRef<RoomHandle>(null as any);
@@ -247,6 +248,17 @@ export default function Home() {
                       {selected.meta.price.toLocaleString("ru-RU")} ₽
                     </p>
                   )}
+                  {selected.meta.glbUrl && !glbLoadedIds.has(selected.id) && (
+                    <p className="text-[10px] px-2 py-1 rounded flex items-center gap-1.5" style={{ background: "#e8e2d9", color: "#7a7069" }}>
+                      <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: "#b8a99a" }} />
+                      Загружается 3D-модель…
+                    </p>
+                  )}
+                  {selected.meta.glbUrl && glbLoadedIds.has(selected.id) && (
+                    <p className="text-[10px] px-2 py-1 rounded" style={{ background: "#e5f0e8", color: "#5a7a5d" }}>
+                      3D-модель загружена
+                    </p>
+                  )}
                   {selected.meta.url && (
                     <a
                       href={selected.meta.url}
@@ -306,6 +318,7 @@ export default function Home() {
           width={dims.width} length={dims.length} height={dims.height}
           wallColor={surfaces.wall} ceilingColor={surfaces.ceiling} floorColor={surfaces.floor}
           onFurnitureSelect={handleSelect}
+          onGlbLoaded={id => setGlbLoadedIds(prev => new Set([...prev, id]))}
         />
       </div>
 
@@ -313,13 +326,32 @@ export default function Home() {
       {showCatalog && (
         <HoffCatalog
           onClose={() => setShowCatalog(false)}
-          onSelect={sofa => {
+          onSelect={async sofa => {
             setShowCatalog(false);
+
+            // Extract articul from product URL query param
+            const articul = sofa.url
+              ? new URL(sofa.url).searchParams.get("articul")
+              : null;
+
+            // Check if a GLB model exists for this product
+            let glbUrl: string | undefined;
+            if (articul) {
+              const candidate = `https://ar.elarbis.com/hoff/assets/${articul}/${articul}_e0v0_fordroid.glb`;
+              try {
+                const res = await fetch(candidate, { method: "HEAD" });
+                if (res.ok) glbUrl = candidate;
+              } catch {
+                // no model — fall through
+              }
+            }
+
             roomRef.current?.addFurniture("sofa", {
               name: sofa.name ?? undefined,
               price: sofa.price ?? undefined,
               photo: sofa.photo ?? undefined,
               url: sofa.url ?? undefined,
+              glbUrl,
             });
           }}
         />

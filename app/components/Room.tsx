@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export type FurnitureType = "sofa" | "table" | "bed" | "wardrobe";
 export type OpeningType   = "window" | "door";
@@ -11,6 +12,7 @@ export interface FurnitureMeta {
   price?: number;
   photo?: string;
   url?: string;
+  glbUrl?: string;
 }
 
 export interface RoomHandle {
@@ -23,6 +25,7 @@ interface RoomProps {
   width: number; length: number; height: number;
   wallColor: string; ceilingColor: string; floorColor: string;
   onFurnitureSelect?: (id: string | null, color: string, meta?: FurnitureMeta) => void;
+  onGlbLoaded?: (id: string) => void;
 }
 
 interface FurnitureItem {
@@ -339,6 +342,36 @@ function buildRoomBase(
   return group;
 }
 
+// ── GLB model normalisation ───────────────────────────────────────────
+// Scales the loaded scene so its longest horizontal axis fits targetW,
+// then floors it at y=0 relative to the group origin.
+function normalizeGlb(scene: THREE.Group, targetW = 2.0) {
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxH = Math.max(size.x, size.z);
+  const scale = maxH > 0 ? targetW / maxH : 1;
+  scene.scale.setScalar(scale);
+
+  // After scaling, re-compute box and shift so bottom sits at y=0
+  box.setFromObject(scene);
+  scene.position.y -= box.min.y;
+}
+
+function makePlaceholderSofa(): THREE.Group {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xd0c5b8, transparent: true, opacity: 0.35,
+    roughness: 0.85,
+  });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.8, 0.9), mat);
+  mesh.position.y = 0.4;
+  mesh.userData.colorable = true;
+  mesh.userData.isPlaceholder = true;
+  g.add(mesh);
+  return g;
+}
+
 function disposeGroup(g: THREE.Group) {
   g.traverse(obj => {
     if (obj instanceof THREE.Mesh) {
@@ -369,7 +402,7 @@ function setHighlight(item: FurnitureItem | null | undefined, on: boolean) {
 
 // ── component ─────────────────────────────────────────────────────────
 const Room = forwardRef<RoomHandle, RoomProps>((
-  { width, length, height, wallColor, ceilingColor, floorColor, onFurnitureSelect },
+  { width, length, height, wallColor, ceilingColor, floorColor, onFurnitureSelect, onGlbLoaded },
   ref
 ) => {
   const mountRef         = useRef<HTMLDivElement>(null);
@@ -393,24 +426,91 @@ const Room = forwardRef<RoomHandle, RoomProps>((
   const idRef            = useRef(0);
   const selectedRef      = useRef<string | null>(null);
   const onSelectRef      = useRef(onFurnitureSelect);
+  const onGlbLoadedRef   = useRef(onGlbLoaded);
 
   useEffect(() => { dimsRef.current = { width, length, height }; }, [width, length, height]);
   useEffect(() => { wallColorRef.current = wallColor; }, [wallColor]);
   useEffect(() => { onSelectRef.current = onFurnitureSelect; }, [onFurnitureSelect]);
+  useEffect(() => { onGlbLoadedRef.current = onGlbLoaded; }, [onGlbLoaded]);
 
   useImperativeHandle(ref, () => ({
     addFurniture(type: FurnitureType, meta?: FurnitureMeta) {
       const scene = sceneRef.current; if (!scene) return;
       const { width: W, length: L, height: H } = dimsRef.current;
-      const group = BUILDERS[type]();
+
       const spread = Math.min(1.2, Math.min(W, L) / 2 - 0.8);
       const ox = spread > 0 ? (Math.random() - 0.5) * spread * 2 : 0;
       const oz = spread > 0 ? (Math.random() - 0.5) * spread * 2 : 0;
-      group.position.set(ox, -H / 2, oz);
-      scene.add(group);
-      const item: FurnitureItem = { id: `f${idRef.current++}`, type, group, color: DEFAULT_COLORS[type], meta };
+
+      const useGlb = type === "sofa" && !!meta?.glbUrl;
+
+      // For sofas with GLB: show placeholder, then swap in real model
+      const initialGroup = useGlb ? makePlaceholderSofa() : BUILDERS[type]();
+      initialGroup.position.set(ox, -H / 2, oz);
+      scene.add(initialGroup);
+
+      const item: FurnitureItem = {
+        id: `f${idRef.current++}`, type, group: initialGroup,
+        color: DEFAULT_COLORS[type], meta,
+      };
       furnitureRef.current.push(item);
-      group.traverse(o => { if (o instanceof THREE.Mesh) meshToItemRef.current.set(o, item); });
+      initialGroup.traverse(o => { if (o instanceof THREE.Mesh) meshToItemRef.current.set(o, item); });
+
+      if (useGlb) {
+        const loader = new GLTFLoader();
+        loader.load(
+          meta!.glbUrl!,
+          (gltf) => {
+            const scene3d = sceneRef.current;
+            if (!scene3d) return;
+
+            // Make sure item is still in the scene (not deleted by user)
+            if (!furnitureRef.current.find(i => i.id === item.id)) return;
+
+            const glbGroup = gltf.scene as THREE.Group;
+            normalizeGlb(glbGroup);
+
+            // Mark all meshes colorable so color picker works
+            glbGroup.traverse(o => {
+              if (o instanceof THREE.Mesh) {
+                if (Array.isArray(o.material)) {
+                  o.material.forEach(m => { (m as THREE.MeshStandardMaterial).roughness = 0.8; });
+                } else {
+                  (o.material as THREE.MeshStandardMaterial).roughness = 0.8;
+                }
+                o.userData.colorable = true;
+              }
+            });
+
+            // Preserve position & rotation from placeholder
+            const pos = item.group.position.clone();
+            const rotY = item.group.rotation.y;
+
+            // Unregister placeholder meshes
+            item.group.traverse(o => meshToItemRef.current.delete(o));
+            scene3d.remove(item.group);
+            disposeGroup(item.group);
+
+            // Register GLB meshes
+            glbGroup.position.copy(pos);
+            glbGroup.rotation.y = rotY;
+            scene3d.add(glbGroup);
+            item.group = glbGroup;
+            glbGroup.traverse(o => { if (o instanceof THREE.Mesh) meshToItemRef.current.set(o, item); });
+
+            // Re-apply color if user already changed it
+            if (item.color !== DEFAULT_COLORS[type]) applyFurnitureColor(item, item.color);
+
+            // Notify parent that GLB is ready
+            onGlbLoadedRef.current?.(item.id);
+          },
+          undefined,
+          () => {
+            // GLB load failed — silently keep placeholder as box
+            console.warn("GLB load failed, keeping placeholder");
+          }
+        );
+      }
     },
     setFurnitureColor(id: string, hex: string) {
       const item = furnitureRef.current.find(i => i.id === id);
