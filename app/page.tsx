@@ -114,8 +114,8 @@ export default function Home() {
     ceiling: "#f0ebe3",
     floor:   "#e5ddd2",
   });
-  const [selected, setSelected]       = useState<{ id: string; color: string; meta?: FurnitureMeta } | null>(null);
-  const [showCatalog, setShowCatalog] = useState(false);
+  const [selected, setSelected]         = useState<{ id: string; color: string; meta?: FurnitureMeta } | null>(null);
+  const [catalogType, setCatalogType]   = useState<"sofa" | "bed" | null>(null);
   const [glbLoadedIds, setGlbLoadedIds] = useState<Set<string>>(new Set());
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -133,6 +133,26 @@ export default function Home() {
     if (!selected) return;
     setSelected(s => s ? { ...s, color: hex } : null);
     roomRef.current?.setFurnitureColor(selected.id, hex);
+  };
+
+  const addFromCatalog = async (type: FurnitureType, item: { name?: string | null; price?: number | null; photo?: string | null; url?: string | null }) => {
+    setCatalogType(null);
+    const articul = item.url ? new URL(item.url).searchParams.get("articul") : null;
+    let glbUrl: string | undefined;
+    if (articul) {
+      const candidate = `https://ar.elarbis.com/hoff/assets/${articul}/${articul}_e0v0_fordroid.glb`;
+      try {
+        const res = await fetch(candidate, { method: "HEAD" });
+        if (res.ok) glbUrl = candidate;
+      } catch { /* no model */ }
+    }
+    roomRef.current?.addFurniture(type, {
+      name:  item.name  ?? undefined,
+      price: item.price ?? undefined,
+      photo: item.photo ?? undefined,
+      url:   item.url   ?? undefined,
+      glbUrl,
+    });
   };
 
   return (
@@ -197,7 +217,11 @@ export default function Home() {
           <div className="flex flex-col gap-1.5 px-5 pb-2">
             {FURNITURE.map(({ type, label }) => (
               <button key={type}
-                onClick={() => type === "sofa" ? setShowCatalog(true) : roomRef.current?.addFurniture(type)}
+                onClick={() => {
+                  if (type === "sofa") setCatalogType("sofa");
+                  else if (type === "bed") setCatalogType("bed");
+                  else roomRef.current?.addFurniture(type);
+                }}
                 className="w-full text-left text-xs px-3 py-2 rounded transition-all"
                 style={{ background: "#e5dfd8", color: "#5c544d", border: "1px solid #cec8bf" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#ddd7cf"; }}
@@ -322,38 +346,21 @@ export default function Home() {
         />
       </div>
 
-      {/* ── Hoff catalog modal ── */}
-      {showCatalog && (
+      {/* ── Hoff catalog modals ── */}
+      {catalogType === "sofa" && (
         <HoffCatalog
-          onClose={() => setShowCatalog(false)}
-          onSelect={async sofa => {
-            setShowCatalog(false);
-
-            // Extract articul from product URL query param
-            const articul = sofa.url
-              ? new URL(sofa.url).searchParams.get("articul")
-              : null;
-
-            // Check if a GLB model exists for this product
-            let glbUrl: string | undefined;
-            if (articul) {
-              const candidate = `https://ar.elarbis.com/hoff/assets/${articul}/${articul}_e0v0_fordroid.glb`;
-              try {
-                const res = await fetch(candidate, { method: "HEAD" });
-                if (res.ok) glbUrl = candidate;
-              } catch {
-                // no model — fall through
-              }
-            }
-
-            roomRef.current?.addFurniture("sofa", {
-              name: sofa.name ?? undefined,
-              price: sofa.price ?? undefined,
-              photo: sofa.photo ?? undefined,
-              url: sofa.url ?? undefined,
-              glbUrl,
-            });
-          }}
+          apiPath="/api/sofas"
+          title="Каталог диванов Hoff"
+          onClose={() => setCatalogType(null)}
+          onSelect={item => addFromCatalog("sofa", item)}
+        />
+      )}
+      {catalogType === "bed" && (
+        <HoffCatalog
+          apiPath="/api/beds"
+          title="Каталог кроватей Hoff"
+          onClose={() => setCatalogType(null)}
+          onSelect={item => addFromCatalog("bed", item)}
         />
       )}
     </div>

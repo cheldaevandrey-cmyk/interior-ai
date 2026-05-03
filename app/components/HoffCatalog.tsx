@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 
-interface Sofa {
+export interface HoffItem {
   name: string | null;
   price: number | null;
   price_raw: string | null;
@@ -13,16 +13,18 @@ interface Sofa {
 }
 
 interface Props {
-  onSelect: (sofa: Sofa) => void;
+  apiPath: string;
+  title: string;
+  onSelect: (item: HoffItem) => void;
   onClose: () => void;
 }
 
 const fmt = (n: number) =>
   n.toLocaleString("ru-RU") + " ₽";
 
-export default function HoffCatalog({ onSelect, onClose }: Props) {
+export default function HoffCatalog({ apiPath, title, onSelect, onClose }: Props) {
   const [query, setQuery]     = useState("");
-  const [items, setItems]     = useState<Sofa[]>([]);
+  const [items, setItems]     = useState<HoffItem[]>([]);
   const [page, setPage]       = useState(1);
   const [pages, setPages]     = useState(1);
   const [total, setTotal]     = useState(0);
@@ -34,7 +36,7 @@ export default function HoffCatalog({ onSelect, onClose }: Props) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ q, page: String(p), limit: "20" });
-      const res = await fetch(`/api/sofas?${params}`);
+      const res = await fetch(`${apiPath}?${params}`);
       const data = await res.json();
       setItems(data.items);
       setTotal(data.total);
@@ -97,7 +99,7 @@ export default function HoffCatalog({ onSelect, onClose }: Props) {
         >
           <div>
             <p className="text-sm font-semibold" style={{ color: "#4e4840" }}>
-              Каталог диванов Hoff
+              {title}
             </p>
             {!loading && (
               <p className="text-[11px] mt-0.5" style={{ color: "#a09288" }}>
@@ -172,7 +174,7 @@ export default function HoffCatalog({ onSelect, onClose }: Props) {
   );
 }
 
-function SofaCard({ sofa, onSelect }: { sofa: Sofa; onSelect: () => void }) {
+function SofaCard({ sofa, onSelect }: { sofa: HoffItem; onSelect: () => void }) {
   const [imgErr, setImgErr] = useState(false);
   const discount = sofa.old_price && sofa.price
     ? Math.round((1 - sofa.price / sofa.old_price) * 100)

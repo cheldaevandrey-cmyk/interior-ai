@@ -442,7 +442,7 @@ const Room = forwardRef<RoomHandle, RoomProps>((
       const ox = spread > 0 ? (Math.random() - 0.5) * spread * 2 : 0;
       const oz = spread > 0 ? (Math.random() - 0.5) * spread * 2 : 0;
 
-      const useGlb = type === "sofa" && !!meta?.glbUrl;
+      const useGlb = (type === "sofa" || type === "bed") && !!meta?.glbUrl;
 
       // For sofas with GLB: show placeholder, then swap in real model
       const initialGroup = useGlb ? makePlaceholderSofa() : BUILDERS[type]();
